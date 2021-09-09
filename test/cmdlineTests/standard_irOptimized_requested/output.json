@@ -60,7 +60,7 @@ object \"C_7\" {
             { tail := add(headStart, 0) }
             function allocate_unbounded() -> memPtr
             { memPtr := mload(64) }
-            /// @src 0:92:119  \"function f() public pure {}\"
+            /// @ast-id 6 @src 0:92:119  \"function f() public pure {}\"
             function fun_f_6()
             { }
             /// @src 0:79:121  \"contract C { function f() public pure {} }\"

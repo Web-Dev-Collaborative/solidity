@@ -280,6 +280,7 @@ object "D_27" {
                 mstore(64, newFreePtr)
             }
 
+            /// @ast-id 26
             /// @src 0:336:597  "function f() /* @use-src 0:\"input.sol\", 1:\"#utility.yul\" @ast-id 15 *\/ public returns (string memory) { C c = new /// @src 0:149:156  \"new C()\"..."
             function fun_f_26() -> var__5_mpos {
                 /// @src 0:423:436  "string memory"

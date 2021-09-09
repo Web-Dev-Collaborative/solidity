@@ -79,6 +79,7 @@ object \"C_7\" {
                 memPtr := mload(64)
             }
 
+            /// @ast-id 6
             /// @src 0:92:119  \"function f() public pure {}\"
             function fun_f_6() {
 

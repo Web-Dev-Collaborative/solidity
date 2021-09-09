@@ -156,6 +156,7 @@ object \"D_16\" {
                 memPtr := mload(64)
             }
 
+            /// @ast-id 15
             /// @src 0:106:144  \"function f() public { C c = new C(); }\"
             function fun_f_15() {
 
