@@ -70,7 +70,7 @@ void OptimizedEVMCodeTransform::operator()(CFG::FunctionCall const& _call)
 	{
 		yulAssert(m_assembly.stackHeight() == static_cast<int>(m_stack.size()), "");
 		yulAssert(m_stack.size() >= _call.function.get().arguments.size() + 1, "");
-		// Assert that we got a correct arguments on stack for the call.
+		// Assert that we got the correct arguments on stack for the call.
 		for (auto&& [arg, slot]: ranges::zip_view(
 			_call.functionCall.get().arguments | ranges::views::reverse,
 			m_stack | ranges::views::take_last(_call.functionCall.get().arguments.size())
@@ -162,8 +162,8 @@ void OptimizedEVMCodeTransform::operator()(CFG::Assignment const& _assignment)
 	yulAssert(m_stack.size() >= _assignment.variables.size(), "");
 	for (auto&& [currentSlot, varSlot]: ranges::zip_view(
 		m_stack | ranges::views::take_last(_assignment.variables.size()),
-		_assignment.variables)
-	)
+		_assignment.variables
+	))
 		currentSlot = varSlot;
 }
 
@@ -174,11 +174,11 @@ OptimizedEVMCodeTransform::OptimizedEVMCodeTransform(
 	CFG const& _dfg,
 	StackLayout const& _stackLayout
 ):
-m_assembly(_assembly),
-m_builtinContext(_builtinContext),
-m_useNamedLabelsForFunctions(_useNamedLabelsForFunctions),
-m_dfg(_dfg),
-m_stackLayout(_stackLayout)
+	m_assembly(_assembly),
+	m_builtinContext(_builtinContext),
+	m_useNamedLabelsForFunctions(_useNamedLabelsForFunctions),
+	m_dfg(_dfg),
+	m_stackLayout(_stackLayout)
 {
 }
 
@@ -193,13 +193,12 @@ AbstractAssembly::LabelID OptimizedEVMCodeTransform::getFunctionLabel(Scope::Fun
 {
 	CFG::FunctionInfo const& functionInfo = m_dfg.functionInfo.at(&_function);
 	if (!m_functionLabels.count(&functionInfo))
-		m_functionLabels[&functionInfo] = m_useNamedLabelsForFunctions ?
-			m_assembly.namedLabel(
-				functionInfo.function.name.str(),
-				functionInfo.function.arguments.size(),
-				functionInfo.function.returns.size(),
-				{}
-			) : m_assembly.newLabelId();
+		m_functionLabels[&functionInfo] = m_useNamedLabelsForFunctions ? m_assembly.namedLabel(
+			functionInfo.function.name.str(),
+			functionInfo.function.arguments.size(),
+			functionInfo.function.returns.size(),
+			{}
+		) : m_assembly.newLabelId();
 	return m_functionLabels[&functionInfo];
 }
 
@@ -239,16 +238,17 @@ void OptimizedEVMCodeTransform::createStackLayout(Stack _targetStack)
 		[&](unsigned _i)
 		{
 			yulAssert(static_cast<int>(m_stack.size()) == m_assembly.stackHeight(), "");
-			yulAssert(_i > 0, "");
+			yulAssert(_i > 0 && _i < m_stack.size(), "");
 			if (_i <= 16)
 				m_assembly.appendInstruction(evmasm::swapInstruction(_i));
 			else
 			{
-				int deficit = static_cast<int>(_i - 16);
+				int deficit = static_cast<int>(_i) - 16;
 				StackSlot const& deepSlot = m_stack.at(m_stack.size() - _i - 1);
 				YulString varNameDeep = slotVariableName(deepSlot);
 				YulString varNameTop = slotVariableName(m_stack.back());
-				string msg = "Cannot swap " + (varNameDeep.empty() ? "Slot " + stackSlotToString(deepSlot) : "Variable " + varNameDeep.str()) +
+				string msg =
+					"Cannot swap " + (varNameDeep.empty() ? "Slot " + stackSlotToString(deepSlot) : "Variable " + varNameDeep.str()) +
 					" with " + (varNameTop.empty() ? "Slot " + stackSlotToString(m_stack.back()) : "Variable " + varNameTop.str()) +
 					": too deep in the stack by " + to_string(deficit) + " slots in " + stackToString(m_stack);
 				m_stackErrors.emplace_back(StackTooDeepError(
@@ -277,7 +277,8 @@ void OptimizedEVMCodeTransform::createStackLayout(Stack _targetStack)
 				{
 					int deficit = static_cast<int>(*depth - 15);
 					YulString varName = slotVariableName(_slot);
-					string msg = (varName.empty() ? "Slot " + stackSlotToString(_slot) : "Variable " + varName.str())
+					string msg =
+						(varName.empty() ? "Slot " + stackSlotToString(_slot) : "Variable " + varName.str())
 						+ " is " + to_string(*depth - 15) + " too deep in the stack " + stackToString(m_stack);
 					m_stackErrors.emplace_back(StackTooDeepError(
 						m_currentFunctionInfo ? m_currentFunctionInfo->function.name : YulString{},
@@ -286,7 +287,7 @@ void OptimizedEVMCodeTransform::createStackLayout(Stack _targetStack)
 						msg
 					));
 					m_assembly.markAsInvalid();
-					m_assembly.appendConstant(u256(0xDEADBEEF));
+					m_assembly.appendConstant(u256(0xCAFFEE));
 					return;
 				}
 				// else: the slot is too deep in stack, but can be freely generated, we fall through to push it again.
@@ -312,13 +313,12 @@ void OptimizedEVMCodeTransform::createStackLayout(Stack _targetStack)
 				},
 				[&](VariableSlot const& _variable)
 				{
-					if (m_currentFunctionInfo)
-						if (util::contains(m_currentFunctionInfo->returnVariables, _variable))
-						{
-							m_assembly.setSourceLocation(locationOf(_variable));
-							m_assembly.appendConstant(0);
-							return;
-						}
+					if (m_currentFunctionInfo && util::contains(m_currentFunctionInfo->returnVariables, _variable))
+					{
+						m_assembly.setSourceLocation(locationOf(_variable));
+						m_assembly.appendConstant(0);
+						return;
+					}
 					yulAssert(false, "Variable not found on stack.");
 				},
 				[&](TemporarySlot const&)
@@ -328,21 +328,7 @@ void OptimizedEVMCodeTransform::createStackLayout(Stack _targetStack)
 				[&](JunkSlot const&)
 				{
 					// Note: this will always be popped, so we can push anything.
-					// TODO: discuss if PC is in fact a good choice here.
-					// Advantages:
-					// - costs only 2 gas
-					// - deterministic value (in case it is in fact used due to some bug)
-					// - hard to exploit in case of a bug
-					// - distinctive, since it is not generated elsewhere
-					// Disadvantages:
-					// - static analysis might get confused until it realizes that these are always popped
-					// Alternatives:
-					// - any other opcode with cost 2
-					// - unless the stack is empty: DUP1
-					// - the constant 0
-					// Note: it might even make sense to introduce a specific assembly item for this, s.t.
-					//       the peephole optimizer can deal with this (e.g. POP PUSHJUNK can be removed).
-					m_assembly.appendInstruction(evmasm::Instruction::PC);
+					m_assembly.appendInstruction(evmasm::Instruction::CODESIZE);
 				}
 			}, _slot);
 		},
@@ -417,7 +403,7 @@ void OptimizedEVMCodeTransform::operator()(CFG::BasicBlock const& _block)
 			}
 			else
 			{
-				// Generate a jump label for the taret, if not already present.
+				// Generate a jump label for the target, if not already present.
 				if (!m_blockLabels.count(_jump.target))
 					m_blockLabels[_jump.target] = m_assembly.newLabelId();
 
