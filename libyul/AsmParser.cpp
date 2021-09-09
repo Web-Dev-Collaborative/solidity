@@ -103,7 +103,7 @@ unique_ptr<Block> Parser::parseInline(std::shared_ptr<Scanner> const& _scanner)
 	try
 	{
 		m_scanner = _scanner;
-		if (m_sourceNames)
+		if (m_useSourceLocationFrom == UseSourceLocationFrom::Comments)
 			fetchSourceLocationFromComment();
 		return make_unique<Block>(parseBlock());
 	}
@@ -127,43 +127,64 @@ void Parser::fetchSourceLocationFromComment()
 {
 	solAssert(m_sourceNames.has_value(), "");
 
-	if (m_scanner->currentCommentLiteral().empty())
-		return;
+	// TODO make this nicer
+	bool foundASTID = false;
 
-	static regex const lineRE = std::regex(
-		R"~~((?:^|\s*)@src\s+)~~"                    // tag: @src
-		R"~~((-1|\d+):(-1|\d+):(-1|\d+)(?:\s+|$))~~" // index and location, e.g.: 1:234:-1
-		R"~~((?:"(?:[^"\\]|\\.)*"(?:\s+|$))?)~~",    // optional code snippet, e.g.: "string memory s = \"abc\";..."
-		std::regex_constants::ECMAScript | std::regex_constants::optimize
-	);
-
-	string const text = m_scanner->currentCommentLiteral();
-	auto from = sregex_iterator(text.begin(), text.end(), lineRE);
-	auto to = sregex_iterator();
-
-	for (auto const& matchResult: ranges::make_subrange(from, to))
+	if (!m_scanner->currentCommentLiteral().empty())
 	{
-		solAssert(matchResult.size() == 4, "");
+		static regex const lineRE = std::regex(
+			R"~~((?:^|\s*)@src\s+)~~"                    // tag: @src
+			R"~~((-1|\d+):(-1|\d+):(-1|\d+)(?:\s+|$))~~" // index and location, e.g.: 1:234:-1
+			R"~~((?:"(?:[^"\\]|\\.)*"(?:\s+|$))?)~~",    // optional code snippet, e.g.: "string memory s = \"abc\";..."
+			std::regex_constants::ECMAScript | std::regex_constants::optimize
+		);
 
-		auto const sourceIndex = toInt(matchResult[1].str());
-		auto const start = toInt(matchResult[2].str());
-		auto const end = toInt(matchResult[3].str());
+		string const text = m_scanner->currentCommentLiteral();
+		auto from = sregex_iterator(text.begin(), text.end(), lineRE);
+		auto to = sregex_iterator();
 
-		auto const commentLocation = m_scanner->currentCommentLocation();
-		m_debugDataOverride = DebugData::create();
-		if (!sourceIndex || !start || !end)
-			m_errorReporter.syntaxError(6367_error, commentLocation, "Invalid value in source location mapping. Could not parse location specification.");
-		else if (sourceIndex == -1)
-			m_debugDataOverride = DebugData::create(SourceLocation{*start, *end, nullptr});
-		else if (!(sourceIndex >= 0 && m_sourceNames->count(static_cast<unsigned>(*sourceIndex))))
-			m_errorReporter.syntaxError(2674_error, commentLocation, "Invalid source mapping. Source index not defined via @use-src.");
-		else
+		for (auto const& matchResult: ranges::make_subrange(from, to))
 		{
-			shared_ptr<string const> sourceName = m_sourceNames->at(static_cast<unsigned>(*sourceIndex));
-			solAssert(sourceName, "");
-			m_debugDataOverride = DebugData::create(SourceLocation{*start, *end, move(sourceName)});
+			solAssert(matchResult.size() == 4, "");
+
+			auto const sourceIndex = toInt(matchResult[1].str());
+			auto const start = toInt(matchResult[2].str());
+			auto const end = toInt(matchResult[3].str());
+
+			auto const commentLocation = m_scanner->currentCommentLocation();
+			m_debugDataOverride = DebugData::create();
+			if (!sourceIndex || !start || !end)
+				m_errorReporter.syntaxError(6367_error, commentLocation, "Invalid value in source location mapping. Could not parse location specification.");
+			else if (sourceIndex == -1)
+				m_debugDataOverride = DebugData::create(SourceLocation{*start, *end, nullptr});
+			else if (!(sourceIndex >= 0 && m_sourceNames->count(static_cast<unsigned>(*sourceIndex))))
+				m_errorReporter.syntaxError(2674_error, commentLocation, "Invalid source mapping. Source index not defined via @use-src.");
+			else
+			{
+				shared_ptr<string const> sourceName = m_sourceNames->at(static_cast<unsigned>(*sourceIndex));
+				solAssert(sourceName, "");
+				m_debugDataOverride = DebugData::create(SourceLocation{*start, *end, move(sourceName)});
+			}
+		}
+
+		// TODO incorporate this into the parsing of @src
+		smatch astIDMatch;
+		if (regex_search(text, astIDMatch, regex("@ast-id (\\d+)")))
+		{
+			optional<int> astID = toInt(astIDMatch[1].str());
+			if (!astID || *astID < 0 || *astID > std::numeric_limits<int64_t>::max())
+				m_errorReporter.syntaxError(1744_error, m_scanner->currentCommentLocation(), "Invalid argument for @ast-id.");
+			else
+			{
+				foundASTID = true;
+				m_debugDataOverride = DebugData::create(m_debugDataOverride->location, {static_cast<int64_t>(*astID)});
+			}
 		}
 	}
+
+	if (!foundASTID && m_debugDataOverride->astID)
+		// @ast-id only applies to the current AST node, so reset it.
+		m_debugDataOverride = DebugData::create(m_debugDataOverride->location, nullopt);
 }
 
 Block Parser::parseBlock()
