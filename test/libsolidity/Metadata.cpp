@@ -344,24 +344,28 @@ BOOST_AUTO_TEST_CASE(metadata_viair)
 		}
 	)";
 
-	auto check = [](char const* _src, bool _viair)
+	auto checkMetadata = [](string const& _serialisedMetadata, bool _expectViaIR)
+	{
+		Json::Value metadata;
+		BOOST_REQUIRE(util::jsonParseStrict(_serialisedMetadata, metadata));
+		BOOST_CHECK(solidity::test::isValidMetadata(metadata));
+		BOOST_CHECK(metadata.isMember("settings"));
+		if (_expectViaIR)
+		{
+			BOOST_CHECK(metadata["settings"].isMember("viaIR"));
+			BOOST_CHECK(metadata["settings"]["viaIR"].asBool());
+		}
+	};
+
+	auto check = [&checkMetadata](char const* _src, bool _viaIR)
 	{
 		CompilerStack compilerStack;
 		compilerStack.setSources({{"", std::string(_src)}});
 		compilerStack.setEVMVersion(solidity::test::CommonOptions::get().evmVersion());
 		compilerStack.setOptimiserSettings(solidity::test::CommonOptions::get().optimize);
-		compilerStack.setViaIR(_viair);
+		compilerStack.setViaIR(_viaIR);
 		BOOST_REQUIRE_MESSAGE(compilerStack.compile(), "Compiling contract failed");
-		string metadata_str = compilerStack.metadata("test");
-		Json::Value metadata;
-		BOOST_REQUIRE(util::jsonParseStrict(metadata_str, metadata));
-		BOOST_CHECK(solidity::test::isValidMetadata(metadata));
-		BOOST_CHECK(metadata.isMember("settings"));
-		if (_viair)
-		{
-			BOOST_CHECK(metadata["settings"].isMember("viaIR"));
-			BOOST_CHECK(metadata["settings"]["viaIR"].asBool());
-		}
+		checkMetadata(compilerStack.metadata("test"), _viaIR);
 	};
 
 	check(sourceCode, true);
