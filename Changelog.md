@@ -16,6 +16,7 @@ Compiler Features:
 
 
 Bugfixes:
+ * Code Generator: Fix ICE on accessing calldata structs from inline assembly.
  * Code Generator: Use stable source order for ABI functions.
  * Opcode Optimizer: Prevent the optimizer from running multiple times to avoid potential bytecode differences for referenced code.
  * Name Resolver: Fix that when importing an aliased symbol using ``import {AliasedName} from "a.sol"`` it would use the original name of the symbol and not the aliased one.
