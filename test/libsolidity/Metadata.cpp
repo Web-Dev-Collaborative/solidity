@@ -355,6 +355,8 @@ BOOST_AUTO_TEST_CASE(metadata_viair)
 			BOOST_CHECK(metadata["settings"].isMember("viaIR"));
 			BOOST_CHECK(metadata["settings"]["viaIR"].asBool());
 		}
+		else
+			BOOST_CHECK(!metadata["settings"].isMember("viaIR"));
 	};
 
 	auto check = [&checkMetadata](char const* _src, bool _viaIR)
@@ -365,7 +367,29 @@ BOOST_AUTO_TEST_CASE(metadata_viair)
 		compilerStack.setOptimiserSettings(solidity::test::CommonOptions::get().optimize);
 		compilerStack.setViaIR(_viaIR);
 		BOOST_REQUIRE_MESSAGE(compilerStack.compile(), "Compiling contract failed");
+
 		checkMetadata(compilerStack.metadata("test"), _viaIR);
+		checkMetadata(compilerStack.evmMetadata("test"), false);
+		checkMetadata(compilerStack.irMetadata("test"), true);
+
+		BOOST_CHECK(compilerStack.evmMetadata("test") != compilerStack.irMetadata("test"));
+		if (_viaIR)
+			BOOST_CHECK(compilerStack.metadata("test") == compilerStack.irMetadata("test"));
+		else
+			BOOST_CHECK(compilerStack.metadata("test") == compilerStack.evmMetadata("test"));
+
+		map<string, string> const cborMetadata = requireParsedCBORMetadata(
+			compilerStack.runtimeObject("test").bytecode,
+			CompilerStack::MetadataFormat::WithReleaseVersionTag
+		);
+
+		if (_viaIR)
+		{
+			BOOST_CHECK(cborMetadata.count("experimental") == 1);
+			BOOST_CHECK(cborMetadata.at("experimental") == "true");
+		}
+		else
+			BOOST_CHECK(cborMetadata.count("experimental") == 0);
 	};
 
 	check(sourceCode, true);
